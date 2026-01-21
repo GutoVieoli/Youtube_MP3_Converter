@@ -1,6 +1,0 @@
-# Adicione suas URLs aqui, uma por linha
-# Exemplo:
-# https://www.youtube.com/watch?v=VIDEO_ID_1
-# https://www.youtube.com/watch?v=VIDEO_ID_2
-https://www.youtube.com/watch?v=7-lWzQd_xeQ
-https://www.youtube.com/watch?v=Ec08db2hP10

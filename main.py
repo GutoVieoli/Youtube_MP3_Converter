@@ -5,39 +5,73 @@ import shutil
 import platform
 import concurrent.futures
 import yt_dlp
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    DownloadColumn,
+    TransferSpeedColumn,
+    TimeRemainingColumn,
+)
+import questionary
+
+console = Console()
 
 
-def baixar_audio(url: str, quality: int):
-
-    # Configuração de caminhos
-    # Pega a pasta onde este script (.py) está localizado
+def get_ffmpeg_path():
     pasta_projeto = os.path.dirname(os.path.abspath(__file__))
-
     if platform.system() == "Linux":
-        caminho_ffmpeg = shutil.which("ffmpeg")
-    else:
-        caminho_ffmpeg = os.path.join(pasta_projeto, "ffmpeg/ffmpeg.exe")
+        return shutil.which("ffmpeg")
+    return os.path.join(pasta_projeto, "ffmpeg/ffmpeg.exe")
 
+
+def show_header():
+    console.clear()
+    console.print(
+        Panel.fit(
+            "[bold cyan]YouTube MP3 Downloader[/bold cyan]\n[dim]Baixe áudios com qualidade e estilo![/dim]",
+            border_style="cyan",
+        )
+    )
+
+
+class IDLogger:
+    def debug(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        console.print(f"[red][ERRO] {msg}[/red]")
+
+
+def progress_hook(d, task_id, progress):
+    if d["status"] == "downloading":
+        total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate")
+        downloaded_bytes = d.get("downloaded_bytes", 0)
+        if total_bytes:
+            progress.update(task_id, total=total_bytes, completed=downloaded_bytes)
+    elif d["status"] == "finished":
+        progress.update(task_id, completed=d.get("total_bytes"), description="[green]Processando MP3...[/green]")
+
+
+def baixar_audio(url: str, quality: int, progress: Progress, task_id):
+    pasta_projeto = os.path.dirname(os.path.abspath(__file__))
+    caminho_ffmpeg = get_ffmpeg_path()
     pasta_destino = os.path.join(pasta_projeto, "downloads")
     os.makedirs(pasta_destino, exist_ok=True)
 
-    if not caminho_ffmpeg or (
-        platform.system() != "Linux" and not os.path.exists(caminho_ffmpeg)
-    ):
-        print("=" * 60)
-        print("ERRO: ffmpeg não encontrado!")
-        if platform.system() == "Linux":
-            print("Instale o ffmpeg no sistema (ex: sudo apt install ffmpeg)")
-        else:
-            print(
-                f"Certifique-se de que o ffmpeg.exe esteja em: {pasta_projeto}/ffmpeg"
-            )
-        print("=" * 60)
+    if not caminho_ffmpeg or (platform.system() != "Linux" and not os.path.exists(caminho_ffmpeg)):
+        console.print("[red]FFmpeg não encontrado! Verifique a instalação.[/red]")
         return
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "ffmpeg_location": caminho_ffmpeg,  # Força o uso do EXE da pasta
+        "ffmpeg_location": caminho_ffmpeg,
         "outtmpl": os.path.join(pasta_destino, "%(title)s.%(ext)s"),
         "postprocessors": [
             {
@@ -46,127 +80,130 @@ def baixar_audio(url: str, quality: int):
                 "preferredquality": str(quality),
             }
         ],
-        # Evita warnings chatos de interface
-        "quiet": False,
-        "no_warnings": False,
+        "logger": IDLogger(),
+        "progress_hooks": [lambda d: progress_hook(d, task_id, progress)],
+        "quiet": True,
+        "no_warnings": True,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"\n[INFO] Analisando: {url}")
+            info = ydl.extract_info(url, download=False)
+            title = info.get("title", "Desconhecido")
+            progress.update(task_id, description=f"[cyan]Baixando: {title}[/cyan]")
             ydl.download([url])
-            print("\n" + "=" * 60)
-            print("CONCLUÍDO COM SUCESSO!")
-            print("O seu MP3 está na pasta do script.")
-            print("Pressione Ctrl+C para sair ou baixe mais áudios.")
-            print("=" * 60 + "\n")
+            progress.update(task_id, description=f"[green]Concluído: {title}[/green]")
     except Exception as exc:
-        print(f"\n[ERRO] Ocorreu um problema: {exc}")
-
-
-def cabecalho_programa() -> str:
-    print("=" * 60)
-    print("Bem-vindo ao dowloader de áudio MP3 do Youtube!")
-    print("Sinta-se a vontade para mexer no código e alterá-lo")
-    print("=" * 60)
-
-
-def ler_url() -> str:
-    while True:
-        input_url = input("Cole a URL do vídeo do YouTube: ").strip()
-        if not input_url:
-            continue
-        elif not input_url.startswith(("http://", "https://")):
-            print("\nURL inválida. Deve começar com http:// ou https://")
-        else:
-            return input_url
-
-
-def ler_qualidade_kbps() -> int:
-    print("\nDigite a opção escolhida para qualidade do áudio: ")
-
-    while True:
-        print("[A] - 128 Kbps (baixa)")
-        print("[B] - 192 Kbps (recomendada)")
-        print("[C] - 256 Kbps (alta)")
-        input_quality = input("Digite: ").strip().upper()
-
-        if not input_quality or input_quality not in ["A", "B", "C"]:
-            print("\nOpção inválida, digite somente A, B ou C.")
-        else:
-            if input_quality == "A":
-                return 128
-            elif input_quality == "B":
-                return 192
-            else:
-                return 256
+        progress.update(task_id, description=f"[red]Erro: {exc}[/red]")
 
 
 def processar_lista_urls(arquivo: str, quality: int):
     if not os.path.exists(arquivo):
-        print(f"\n[ERRO] Arquivo não encontrado: {arquivo}")
+        console.print(f"[red]Arquivo não encontrado: {arquivo}[/red]")
         return
 
     urls = []
     try:
         with open(arquivo, "r", encoding="utf-8") as F:
-            for linha in F:
-                linha = linha.strip()
-                if linha and linha.startswith(("http://", "https://")):
-                    urls.append(linha)
+            urls = [line.strip() for line in F if line.strip().startswith(("http", "https"))]
     except Exception as e:
-        print(f"\n[ERRO] Falha ao ler arquivo: {e}")
+        console.print(f"[red]Erro ao ler arquivo: {e}[/red]")
         return
 
     if not urls:
-        print("\n[AVISO] Nenhuma URL válida encontrada no arquivo.")
+        console.print("[yellow]Nenhuma URL válida encontrada.[/yellow]")
         return
+    
+    console.print(f"\n[bold green]Iniciando download de {len(urls)} vídeos...[/bold green]\n")
 
-    print(f"\n[INFO] Iniciando download de {len(urls)} vídeos em lotes de 3...")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        
+        # Create a task for each URL immediately so they show up
+        tasks = {}
+        for url in urls:
+            task_id = progress.add_task(f"[dim]Aguardando: {url}[/dim]", start=False)
+            tasks[url] = task_id
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(baixar_audio, url, quality) for url in urls]
-        # Aguarda todos terminarem
-        concurrent.futures.wait(futures)
+        # Run downloads in parallel (max 3 workers)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = []
+            for url in urls:
+                task_id = tasks[url]
+                progress.start_task(task_id)
+                futures.append(executor.submit(baixar_audio, url, quality, progress, task_id))
+            concurrent.futures.wait(futures)
 
-    print("\n" + "=" * 60)
-    print("TODOS OS DOWNLOADS DO LOTE FORAM CONCLUÍDOS!")
-    print("=" * 60 + "\n")
+    console.print(Panel("[bold green]Todos os downloads concluídos![/bold green]", border_style="green"))
 
 
-def ler_modo_operacao() -> str:
-    print("\nEscolha o modo de operação:")
-    print("[1] - Única URL")
-    print("[2] - Lote de URLs (arquivo .txt)")
-
+def main():
     while True:
-        resp = input("Digite a opção (1 ou 2): ").strip()
-        if resp in ["1", "2"]:
-            return resp
-        print("Opção inválida. Digite 1 ou 2.")
+        show_header()
+        
+        modo = questionary.select(
+            "Escolha o modo de operação:",
+            choices=[
+                "Única URL",
+                "Lote de URLs (arquivo .txt)",
+                "Sair"
+            ]
+        ).ask()
 
+        if modo == "Sair":
+            console.print("[blue]Até logo![/blue]")
+            break
+
+        quality_str = questionary.select(
+            "Escolha a qualidade do áudio:",
+            choices=[
+                "128 Kbps (Baixa)",
+                "192 Kbps (Recomendada)",
+                "256 Kbps (Alta)"
+            ]
+        ).ask()
+        
+        quality = int(quality_str.split()[0])
+
+        if modo == "Única URL":
+            url = questionary.text("Cole a URL do vídeo do YouTube:").ask()
+            if url:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                ) as progress:
+                    task_id = progress.add_task("[cyan]Iniciando...[/cyan]", total=None)
+                    baixar_audio(url, quality, progress, task_id)
+                
+                input("\nPressione Enter para continuar...")
+
+        else:
+            caminho_txt = questionary.text(
+                "Caminho do arquivo .txt:",
+                default="batch.txt"
+            ).ask()
+            
+            # Limpa aspas extras se houver
+            caminho_txt = caminho_txt.replace('"', "").replace("'", "").strip()
+            
+            if caminho_txt:
+                processar_lista_urls(caminho_txt, quality)
+                input("\nPressione Enter para continuar...")
 
 if __name__ == "__main__":
     try:
-        cabecalho_programa()
-
-        while True:
-            quality: int = ler_qualidade_kbps()
-            modo = ler_modo_operacao()
-
-            if modo == "1":
-                url: str = ler_url()
-                baixar_audio(url=url, quality=quality)
-            else:
-                caminho_txt = input(
-                    "Digite o caminho do arquivo .txt com as URLs [Enter para 'batch.txt']: "
-                ).strip()
-                if not caminho_txt:
-                    caminho_txt = "batch.txt"
-
-                # Remove aspas se o usuário arrastar o arquivo para o terminal
-                caminho_txt = caminho_txt.replace('"', "").replace("'", "")
-                processar_lista_urls(arquivo=caminho_txt, quality=quality)
-
+        main()
     except KeyboardInterrupt:
-        print("\n\nPrograma encerrado pelo usuário.\n")
+        console.print("\n[red]Interrompido pelo usuário.[/red]")
