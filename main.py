@@ -1,6 +1,9 @@
 # pylint: disable=missing-function-docstring
 # pylint: disable=broad-exception-caught
 import os
+import shutil
+import platform
+import concurrent.futures
 import yt_dlp
 
 
@@ -9,15 +12,26 @@ def baixar_audio(url: str, quality: int):
     # Configuração de caminhos
     # Pega a pasta onde este script (.py) está localizado
     pasta_projeto = os.path.dirname(os.path.abspath(__file__))
-    caminho_ffmpeg = os.path.join(pasta_projeto, "ffmpeg/ffmpeg.exe")
+
+    if platform.system() == "Linux":
+        caminho_ffmpeg = shutil.which("ffmpeg")
+    else:
+        caminho_ffmpeg = os.path.join(pasta_projeto, "ffmpeg/ffmpeg.exe")
 
     pasta_destino = os.path.join(pasta_projeto, "downloads")
     os.makedirs(pasta_destino, exist_ok=True)
 
-    if not os.path.exists(caminho_ffmpeg):
+    if not caminho_ffmpeg or (
+        platform.system() != "Linux" and not os.path.exists(caminho_ffmpeg)
+    ):
         print("=" * 60)
-        print("ERRO: ffmpeg.exe não encontrado na pasta!")
-        print(f"Certifique-se de que o ffmpeg.exe esteja em: {pasta_projeto}/ffmpeg")
+        print("ERRO: ffmpeg não encontrado!")
+        if platform.system() == "Linux":
+            print("Instale o ffmpeg no sistema (ex: sudo apt install ffmpeg)")
+        else:
+            print(
+                f"Certifique-se de que o ffmpeg.exe esteja em: {pasta_projeto}/ffmpeg"
+            )
         print("=" * 60)
         return
 
@@ -88,14 +102,71 @@ def ler_qualidade_kbps() -> int:
                 return 256
 
 
+def processar_lista_urls(arquivo: str, quality: int):
+    if not os.path.exists(arquivo):
+        print(f"\n[ERRO] Arquivo não encontrado: {arquivo}")
+        return
+
+    urls = []
+    try:
+        with open(arquivo, "r", encoding="utf-8") as F:
+            for linha in F:
+                linha = linha.strip()
+                if linha and linha.startswith(("http://", "https://")):
+                    urls.append(linha)
+    except Exception as e:
+        print(f"\n[ERRO] Falha ao ler arquivo: {e}")
+        return
+
+    if not urls:
+        print("\n[AVISO] Nenhuma URL válida encontrada no arquivo.")
+        return
+
+    print(f"\n[INFO] Iniciando download de {len(urls)} vídeos em lotes de 3...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(baixar_audio, url, quality) for url in urls]
+        # Aguarda todos terminarem
+        concurrent.futures.wait(futures)
+
+    print("\n" + "=" * 60)
+    print("TODOS OS DOWNLOADS DO LOTE FORAM CONCLUÍDOS!")
+    print("=" * 60 + "\n")
+
+
+def ler_modo_operacao() -> str:
+    print("\nEscolha o modo de operação:")
+    print("[1] - Única URL")
+    print("[2] - Lote de URLs (arquivo .txt)")
+
+    while True:
+        resp = input("Digite a opção (1 ou 2): ").strip()
+        if resp in ["1", "2"]:
+            return resp
+        print("Opção inválida. Digite 1 ou 2.")
+
+
 if __name__ == "__main__":
     try:
         cabecalho_programa()
 
         while True:
-            url: str = ler_url()
             quality: int = ler_qualidade_kbps()
-            baixar_audio(url=url, quality=quality)
+            modo = ler_modo_operacao()
+
+            if modo == "1":
+                url: str = ler_url()
+                baixar_audio(url=url, quality=quality)
+            else:
+                caminho_txt = input(
+                    "Digite o caminho do arquivo .txt com as URLs [Enter para 'batch.txt']: "
+                ).strip()
+                if not caminho_txt:
+                    caminho_txt = "batch.txt"
+
+                # Remove aspas se o usuário arrastar o arquivo para o terminal
+                caminho_txt = caminho_txt.replace('"', "").replace("'", "")
+                processar_lista_urls(arquivo=caminho_txt, quality=quality)
 
     except KeyboardInterrupt:
         print("\n\nPrograma encerrado pelo usuário.\n")
