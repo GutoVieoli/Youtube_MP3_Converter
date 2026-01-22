@@ -7,9 +7,11 @@ O projeto utiliza a biblioteca **yt-dlp** junto com um **ffmpeg.exe local**, eli
 
 ---
 
+<img src="https://github.com/GutoVieoli/Youtube_MP3_Converter/blob/master/.github/assets/terminal.png">
+
 ## 🚀 Funcionalidades
 
-- Baixa áudio de vídeos do YouTube
+- Escolha entre baixar o áudio através de uma url única ou por um arquivo de texto com url de vídeos do YouTube
 - Converte automaticamente para **MP3**
 - Escolha de qualidade:
   - 128 kbps (baixa)
@@ -39,8 +41,7 @@ youtube-mp3-converter/
 ├── requirements.txt
 ├── downloads/
 └── ffmpeg/
-   ├── ffmpeg.exe
-   └── ffprobe.exe
+   └── ffpeg.exe
 
 ````
 
@@ -71,8 +72,6 @@ youtube-mp3-converter/
    ```bash
    pip install -r requirements.txt
    ```
-
-> O `requirements.txt` contém apenas a versão do **yt-dlp**, mantendo o projeto simples e limpo.
 
 ---
 
