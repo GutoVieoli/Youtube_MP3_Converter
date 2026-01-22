@@ -40,7 +40,7 @@ class YtDlpLogger:
         pass
 
     def warning(self, msg):
-        self.ui.show_warning(msg)
+        pass
 
     def error(self, msg):
         self.ui.show_error(msg)

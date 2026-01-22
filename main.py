@@ -42,6 +42,43 @@ def progress_hook(d, task_id, progress):
         )
 
 
+def extrair_urls(entrada_usuario):
+    urls_finais = []
+
+    ydl_opts = {
+        "extract_flat": True,
+        "quiet": True,
+        "process_input_url": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(entrada_usuario, download=False)
+
+            if "entries" in info:
+                entries = list(info["entries"])
+                for entry in entries:
+                    # Algumas playlists retornam apenas o ID, montamos a URL
+                    url = (
+                        entry.get("url")
+                        or f"https://www.youtube.com/watch?v={entry.get('id')}"
+                    )
+                    urls_finais.append(url)
+
+            elif info.get("_type") == "url" or info.get("_type") == "url_transparent":
+                # Se for um link de playlist, chamamos a função de novo apontando especificamente para a playlist
+                return extrair_urls(info["url"])
+
+        except Exception as e:
+            console_logger.show_message(f"[red]Erro ao analisar URL: {e}[/red]")
+
+    console_logger.show_message(
+        f"[blue]Playlist detectada: {info.get('title')} ({len(urls_finais)} vídeos)[/blue]"
+    )
+
+    return urls_finais
+
+
 def baixar_audio(url: str, quality: int, progress: Progress, task_id):
     pasta_projeto = os.path.dirname(os.path.abspath(__file__))
     caminho_ffmpeg = get_ffmpeg_path()
@@ -148,7 +185,11 @@ def main():
 
         modo = questionary.select(
             "Escolha o modo de operação:",
-            choices=["Única URL", "Lote de URLs (arquivo .txt)", "Sair"],
+            choices=[
+                "Única URL (vídeo ou playlist)",
+                "Lote de URLs (arquivo .txt)",
+                "Sair",
+            ],
         ).ask()
 
         if modo == "Sair":
@@ -162,9 +203,15 @@ def main():
 
         quality = int(quality_str.split()[0])
 
-        if modo == "Única URL":
-            url = questionary.text("Cole a URL do vídeo do YouTube:").ask()
-            if url:
+        if modo == "Única URL (vídeo ou playlist)":
+            url_input = questionary.text("Cole a URL do YouTube:").ask()
+
+            if url_input:
+                if "list=" in url_input:
+                    urls_para_baixar = extrair_urls(url_input)
+                else:
+                    urls_para_baixar = [url_input]
+
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -174,8 +221,28 @@ def main():
                     TimeRemainingColumn(),
                     console=console_logger.get_console(),
                 ) as progress:
-                    task_id = progress.add_task("[cyan]Iniciando...[/cyan]", total=None)
-                    baixar_audio(url, quality, progress, task_id)
+
+                    tasks = {}
+                    for url in urls_para_baixar:
+                        task_id = progress.add_task(
+                            f"[dim]Aguardando: {url}[/dim]", start=False
+                        )
+                        tasks[url] = task_id
+
+                    # Run downloads in parallel (max 3 workers)
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=3
+                    ) as executor:
+                        futures = []
+                        for url in urls_para_baixar:
+                            task_id = tasks[url]
+                            progress.start_task(task_id)
+                            futures.append(
+                                executor.submit(
+                                    baixar_audio, url, quality, progress, task_id
+                                )
+                            )
+                        concurrent.futures.wait(futures)
 
                 input("\nPressione Enter para continuar...")
 
