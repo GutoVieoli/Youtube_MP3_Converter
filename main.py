@@ -7,15 +7,7 @@ import concurrent.futures
 import yt_dlp
 import questionary
 from rich.panel import Panel
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    BarColumn,
-    TextColumn,
-    DownloadColumn,
-    TransferSpeedColumn,
-    TimeRemainingColumn,
-)
+from rich.progress import Progress
 from interface import ConsoleLogger, YtDlpLogger
 
 console_logger = ConsoleLogger()
@@ -144,23 +136,14 @@ def processar_lista_urls(arquivo: str, quality: int):
         f"\n[bold green]Iniciando download de {len(urls)} vídeos...[/bold green]\n"
     )
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        DownloadColumn(),
-        TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        console=console_logger.get_console(),
-    ) as progress:
+    with console_logger.create_progress() as progress:
 
-        # Create a task for each URL immediately so they show up
+        # Create a task for each URL
         tasks = {}
         for url in urls:
             task_id = progress.add_task(f"[dim]Aguardando: {url}[/dim]", start=False)
             tasks[url] = task_id
 
-        # Run downloads in parallel (max 3 workers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             for url in urls:
@@ -177,6 +160,51 @@ def processar_lista_urls(arquivo: str, quality: int):
             border_style="green",
         )
     )
+
+
+def opcao_url_unica(quality: int):
+    url_input = questionary.text("Cole a URL do YouTube:").ask()
+
+    if url_input:
+        if "list=" in url_input:
+            urls_para_baixar = extrair_urls(url_input)
+        else:
+            urls_para_baixar = [url_input]
+
+        with console_logger.create_progress() as progress:
+
+            tasks = {}
+            for url in urls_para_baixar:
+                task_id = progress.add_task(
+                    f"[dim]Aguardando: {url}[/dim]", start=False
+                )
+                tasks[url] = task_id
+
+            # Run downloads in parallel (max 3 workers)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                for url in urls_para_baixar:
+                    task_id = tasks[url]
+                    progress.start_task(task_id)
+                    futures.append(
+                        executor.submit(baixar_audio, url, quality, progress, task_id)
+                    )
+                concurrent.futures.wait(futures)
+
+        input("\nPressione Enter para continuar...")
+
+
+def opcao_arquivo_txt(quality: int):
+    caminho_txt = questionary.text(
+        "Caminho do arquivo .txt:", default="batch.txt"
+    ).ask()
+
+    # Limpa aspas extras se houver
+    caminho_txt = caminho_txt.replace('"', "").replace("'", "").strip()
+
+    if caminho_txt:
+        processar_lista_urls(caminho_txt, quality)
+        input("\nPressione Enter para continuar...")
 
 
 def main():
@@ -200,63 +228,13 @@ def main():
             "Escolha a qualidade do áudio:",
             choices=["128 Kbps (Baixa)", "192 Kbps (Recomendada)", "256 Kbps (Alta)"],
         ).ask()
-
         quality = int(quality_str.split()[0])
 
         if modo == "Única URL (vídeo ou playlist)":
-            url_input = questionary.text("Cole a URL do YouTube:").ask()
-
-            if url_input:
-                if "list=" in url_input:
-                    urls_para_baixar = extrair_urls(url_input)
-                else:
-                    urls_para_baixar = [url_input]
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    DownloadColumn(),
-                    TransferSpeedColumn(),
-                    TimeRemainingColumn(),
-                    console=console_logger.get_console(),
-                ) as progress:
-
-                    tasks = {}
-                    for url in urls_para_baixar:
-                        task_id = progress.add_task(
-                            f"[dim]Aguardando: {url}[/dim]", start=False
-                        )
-                        tasks[url] = task_id
-
-                    # Run downloads in parallel (max 3 workers)
-                    with concurrent.futures.ThreadPoolExecutor(
-                        max_workers=3
-                    ) as executor:
-                        futures = []
-                        for url in urls_para_baixar:
-                            task_id = tasks[url]
-                            progress.start_task(task_id)
-                            futures.append(
-                                executor.submit(
-                                    baixar_audio, url, quality, progress, task_id
-                                )
-                            )
-                        concurrent.futures.wait(futures)
-
-                input("\nPressione Enter para continuar...")
+            opcao_url_unica(quality)
 
         else:
-            caminho_txt = questionary.text(
-                "Caminho do arquivo .txt:", default="batch.txt"
-            ).ask()
-
-            # Limpa aspas extras se houver
-            caminho_txt = caminho_txt.replace('"', "").replace("'", "").strip()
-
-            if caminho_txt:
-                processar_lista_urls(caminho_txt, quality)
-                input("\nPressione Enter para continuar...")
+            opcao_arquivo_txt(quality)
 
 
 if __name__ == "__main__":

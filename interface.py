@@ -3,6 +3,15 @@
 # pylint: disable=broad-exception-caught
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    DownloadColumn,
+    TransferSpeedColumn,
+    TimeRemainingColumn,
+)
 
 
 class ConsoleLogger:
@@ -30,6 +39,17 @@ class ConsoleLogger:
 
     def show_error(self, msg: str):
         self.console.print(f"[red][ERRO] {msg}[/red]")
+
+    def create_progress(self) -> Progress:
+        return Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=self.console,
+        )
 
 
 class YtDlpLogger:
